@@ -20,6 +20,7 @@
 #include <ta_sims_test.h>
 #include <ta_storage.h>
 #include <enc_fs_key_manager_test.h>
+#include <ta_bonnie.h>
 #include <tee_api_defines.h>
 
 ADBG_ENUM_TABLE_DEFINE_BEGIN(TEEC_Result)
@@ -74,4 +75,6 @@ const TEEC_UUID rpc_test_ta_uuid = TA_RPC_TEST_UUID;
 const TEEC_UUID sims_test_ta_uuid = TA_SIMS_TEST_UUID;
 const TEEC_UUID storage_ta_uuid = TA_STORAGE_UUID;
 const TEEC_UUID enc_fs_key_manager_test_ta_uuid = ENC_FS_KEY_MANAGER_TEST_UUID;
+const TEEC_UUID bonnie_ta_uuid = TA_BONNIE_UUID;
+
 

@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <adbg.h>
 #include "xtest_test.h"
@@ -78,26 +79,77 @@ ADBG_SUITE_ENTRY(XTEST_TEE_10001, NULL)
 ADBG_SUITE_ENTRY(XTEST_TEE_10002, NULL)
 ADBG_SUITE_DEFINE_END()
 
+
+ADBG_SUITE_DECLARE(XTEST_TEE_BENCHMARK)
+
+ADBG_SUITE_DEFINE_BEGIN(XTEST_TEE_BENCHMARK, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1001, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1002, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1003, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1004, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1005, NULL)
+ADBG_SUITE_ENTRY(XTEST_TEE_BENCHMARK_1006, NULL)
+ADBG_SUITE_DEFINE_END()
+
 static const char gdevname_tz[] = "opteearmtz00";
 char *_device = (char *)gdevname_tz;
 
+static const char gsuitename[] = "sanity";
+
+void usage(char *program);
+
+void usage(char *program)
+{
+	printf("Usage: %s <options> <test_id>\n", program);
+	printf("\n");
+	printf("options:\n");
+	printf("\t-d <device>        default value = %s\n", gdevname_tz);
+	printf("\t-t <test_suite>    available test suite: sanity, benchmark\n");
+	printf("\t                   default value = %s\n", gsuitename);
+	printf("\t-h                 show usage\n");
+	printf("\n");
+}
+
 int main(int argc, char *argv[])
 {
-	argv++;
-	argc--;
+	int ch;
+	int index;
+	int ret;
+	char *test_suite = (char *)gsuitename;
 
-	if (argc >= 1) {
-		if (strcmp(argv[0], gdevname_tz) == 0) {
-			_device = argv[0];
-			argv++;
-			argc--;
+	opterr = 0;
+
+	while ((ch = getopt(argc, argv, "d:t:h")) != -1)
+		switch (ch) {
+		case 'd':
+			_device = optarg;
+			break;
+		case 't':
+			test_suite = optarg;
+			break;
+		case 'h':
+			usage(argv[0]);
+			return 0;
+		default:
+			usage(argv[0]);
+			return -1;
 		}
-	}
+
+	for (index = optind; index < argc; index++)
+		printf("Test ID: %s\n", argv[index]);
+
 	printf("\nTEE test application started with device [%s]\n", _device);
 
 	xtest_teec_ctx_init();
 
-	int ret = Do_ADBG_RunSuite(&ADBG_Suite_XTEST_TEE_TEST, argc, argv);
+	if (strcmp(test_suite, "sanity") == 0)
+		ret = Do_ADBG_RunSuite(&ADBG_Suite_XTEST_TEE_TEST, argc - optind, (argv + optind));
+	else if (strcmp(test_suite, "benchmark") == 0)
+		ret = Do_ADBG_RunSuite(&ADBG_Suite_XTEST_TEE_BENCHMARK, argc - optind, (argv + optind));
+	else {
+		fprintf(stderr, "No test suite found: %s\n", test_suite);
+		ret = -1;
+	}
 
 	xtest_teec_ctx_deinit();
 
