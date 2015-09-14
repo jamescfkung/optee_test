@@ -30,11 +30,7 @@
 
 #include <tee_api.h>
 
-TEE_Result ta_bonnie_cmd_test_putc(uint32_t param_types, TEE_Param params[4]);
-TEE_Result ta_bonnie_cmd_test_rewrite(uint32_t param_types, TEE_Param params[4]);
-TEE_Result ta_bonnie_cmd_test_fastwrite(uint32_t param_types, TEE_Param params[4]);
-TEE_Result ta_bonnie_cmd_test_getc(uint32_t param_types, TEE_Param params[4]);
-TEE_Result ta_bonnie_cmd_test_fastread(uint32_t param_types, TEE_Param params[4]);
-TEE_Result ta_bonnie_cmd_test_lseek(uint32_t param_types, TEE_Param params[4]);
+TEE_Result ta_bonnie_cmd_handler(uint32_t nCommandID,
+		uint32_t param_types, TEE_Param params[4]);
 
 #endif /*BONNIE_H */
