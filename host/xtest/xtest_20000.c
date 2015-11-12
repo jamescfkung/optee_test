@@ -31,7 +31,7 @@
 
 #define SIZE		1
 #define NUMELEM		1
-#define DUMPFILE 	0
+#define DUMPFILE 	1
 #define DUMPLIMIT 	128
 
 #define CORRUPT_META_KEY_OFFSET       offsetof(struct meta_header, encrypted_key)
@@ -251,22 +251,28 @@ static int get_obj_filename(void *file_id, uint32_t file_id_length,
 	return p-buffer;
 }
 
-static int dump_file(FILE *fd, char *buffer, uint32_t len)
+static void dump_file(FILE *fd __attribute__ ((unused)))
 {
-
+#if DUMPFILE == 1
 	uint16_t format = 16;
 	uint16_t size;
-	int res=-1;
+	char buffer[DUMPLIMIT];
+
+	if (!fd) {
+		fprintf(stderr, "fd == NULL\n");
+		return;
+	}
 
 	printf("o Dump data (limit %d bytes)\n", DUMPLIMIT);
-	if ( 0 != fseek(fd, 0, SEEK_SET))
-		goto exit;
-	fread(buffer, 1, len, fd);
-	size = ( len < DUMPLIMIT ) ? len : DUMPLIMIT;
+	if ( 0 != fseek(fd, 0, SEEK_SET)) {
+		perror("Failed to seek to 0");
+		return;
+	}
+
+	memset(buffer, 0, sizeof(buffer));
+	size = fread(buffer, 1, sizeof(buffer), fd);
 	Do_ADBG_HexLog(buffer, size, format);
-	res=0;
-exit:
-	return res;
+#endif
 }
 
 static int is_obj_present(TEEC_UUID *p_uuid, void *file_id,
@@ -298,19 +304,21 @@ err:
         return 0;
 }
 
-static int obj_corrupt(TEEC_UUID *p_uuid, void *file_id,
+static TEEC_Result obj_corrupt(TEEC_UUID *p_uuid, void *file_id,
 		       uint32_t file_id_length,
 		       uint32_t offset, enum tee_fs_file_type file_type,
-		       uint8_t block_num, uint8_t version, uint32_t data_len)
+		       uint8_t block_num, uint8_t version)
 {
 	char ta_dirname[32 + 1];
 	char obj_filename[2*file_id_length + 1];
 	char name[500];
-	FILE *fd;
-	uint8_t byte;
-	int res=-1;
-	char buffer[data_len];
+	FILE *fd = NULL;
+	uint8_t bytes[SIZE * NUMELEM];
+	int res;
+	TEEC_Result tee_res = TEE_SUCCESS;
 	struct stat st;
+
+	memset(name, 0, sizeof(name));
 
 	if (get_ta_dirname(p_uuid, ta_dirname, sizeof(ta_dirname)) &&
 	    get_obj_filename(file_id, file_id_length, obj_filename,
@@ -335,8 +343,11 @@ static int obj_corrupt(TEEC_UUID *p_uuid, void *file_id,
 		}
 
 		res = stat(name, &st);
-		if (res < 0)
+		if (res < 0) {
+			perror("Failed to get file information");
+			tee_res = TEEC_ERROR_ACCESS_DENIED;
 			goto exit;
+		}
 
 		if (offset == CORRUPT_FILE_FIRST_BYTE) {
 			offset = 0;
@@ -350,42 +361,55 @@ static int obj_corrupt(TEEC_UUID *p_uuid, void *file_id,
 		}
 
 		fd = fopen(name, "r+");
-		if (!fd)
+		if (!fd) {
+			perror("Failed to open file");
+			tee_res = TEEC_ERROR_ACCESS_DENIED;
 			goto exit;
+		}
 
-		if (DUMPFILE)
-			dump_file(fd, buffer, sizeof(buffer));
+		dump_file(fd);
 
-		if (0 != fseek(fd, offset, SEEK_SET))
+		if (0 != fseek(fd, offset, SEEK_SET)) {
+			perror("Failed to seek file");
+			tee_res = TEEC_ERROR_BAD_PARAMETERS;
 			goto exit;
+		}
 
-		if (SIZE*NUMELEM != fread(&byte, SIZE, NUMELEM,fd))
+		res = fread(bytes, SIZE, NUMELEM,fd);
+		if (res != (int)(SIZE * NUMELEM)) {
+			fprintf(stderr, "Failed to read file, res=%d\n", res);
+			tee_res = TEEC_ERROR_SHORT_BUFFER;
 			goto exit;
+		}
 
 		printf("o Corrupt %s\n", name);
 		printf("o Size: %ld byte(s)\n", st.st_size);
 		printf("o Byte offset: %u (0x%04X), ", offset, offset);
-		printf("Old value: 0x%x, ", byte);
-		byte += 1;
-		printf("New value: 0x%x\n", byte);
+		printf("Old value: 0x%x, ", bytes[0]);
+		bytes[0] += 1;
+		printf("New value: 0x%x\n", bytes[0]);
 
-		if ( 0 != fseek(fd, offset, SEEK_SET))
+		if ( 0 != fseek(fd, offset, SEEK_SET)) {
+			perror("Failed to seek file");
+			tee_res = TEEC_ERROR_BAD_PARAMETERS;
 			goto exit;
+		}
 
-		if (SIZE*NUMELEM != fwrite(&byte, SIZE, NUMELEM,fd))
+		res = fwrite(bytes, SIZE, NUMELEM,fd);
+		if (res != (int)(SIZE * NUMELEM)) {
+			fprintf(stderr, "Failed to write file, res=%d\n", res);
+			tee_res = TEEC_ERROR_SHORT_BUFFER;
 			goto exit;
+		}
 
-		if (DUMPFILE)
-			dump_file(fd, buffer, sizeof(buffer));
-
-		fclose(fd);
-
-		res = 0;
-		goto exit;
+		dump_file(fd);
 	}
 
 exit:
-	return res;
+	if (fd)
+		fclose(fd);
+
+	return tee_res;
 }
 
 static void storage_corrupt(ADBG_Case_t *c,
@@ -421,6 +445,9 @@ static void storage_corrupt(ADBG_Case_t *c,
 		char *filedata = NULL;
 		size_t p;
 		uint8_t data_byte = 0;
+
+		memset(filename, 0, sizeof(filename));
+
 		snprintf(filename, sizeof(filename), "file_%dB", tv->data_len);
 		filedata = malloc(tv->data_len * sizeof(*filedata));
 		if (!filedata)
@@ -469,10 +496,9 @@ static void storage_corrupt(ADBG_Case_t *c,
 		case META_FILE:
 		/* corrupt object */
 		if (!ADBG_EXPECT(c, TEE_SUCCESS,
-			         obj_corrupt(&uuid, filename,
-				 ARRAY_SIZE(filename), offset,
-			         file_type, tv->meta, tv->meta,
-				 tv->data_len)))
+				obj_corrupt(&uuid, filename,
+							ARRAY_SIZE(filename), offset,
+							file_type, tv->meta, tv->meta)))
 			goto exit;	
 
 		ADBG_EXPECT_TEEC_RESULT(c, TEE_ERROR_CORRUPT_OBJECT,
@@ -499,10 +525,9 @@ static void storage_corrupt(ADBG_Case_t *c,
 		case BLOCK_FILE:
 		/* corrupt object */
 		if (!ADBG_EXPECT(c, TEE_SUCCESS,
-			         obj_corrupt(&uuid, filename,
-				 ARRAY_SIZE(filename), offset,
-			         file_type, tv->block_num, tv->version,
-				 tv->data_len)))
+				obj_corrupt(&uuid, filename,
+							ARRAY_SIZE(filename), offset,
+							file_type, tv->block_num, tv->version)))
 			goto exit;
 
 		if ( tv->block_num == BLOCK0 ) {
